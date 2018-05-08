@@ -1,0 +1,33 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "deploymentPrefix": {
+            "value": "bam-ha-ilb"
+        },
+        "firewallInstanceSize": {
+            "value": "Standard_F1s"
+        },
+        "rootPassword": {
+            "value": null
+        },
+        "publicIpAllocationMethod": {
+            "value": "Dynamic"
+        },
+        "ilbProbePort": {
+            "value": 65500
+        },
+        "firewallSubnetAddress": {
+            "value": "172.16.25.0/24"
+        },
+        "tier1SubnetAddress": {
+            "value": "172.16.26.0/24"
+        },
+        "tier2SubnetAddress": {
+            "value": "172.16.27.0/24"
+        },
+        "prefix": {
+            "value": "bam-lbsandwich"
+        }
+    }
+}
