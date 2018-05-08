@@ -233,7 +233,7 @@
       "name": "webserver",
       "properties": {
         "templateLink": {
-          "uri": "[concat( './', 'webserver.json' )]"
+          "uri": "[concat( 'https://raw.githubusercontent.com/bartekmo/playground/master/lb-sandwich-reversed-azure/', 'webserver.json' )]"
         },
         "parameters": {
           "prefix": { "value": "[parameters('deploymentPrefix')]" },
