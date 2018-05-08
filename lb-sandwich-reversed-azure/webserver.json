@@ -19,7 +19,7 @@
   "variables": {
     "servName": "[concat( parameters( 'prefix' ), '-websrv' )]",
     "nicName": "[concat( parameters( 'prefix' ), '-webnic' )]",
-    "vmSize": "Standard_F1"
+    "vmSize": "Standard_F1s"
   },
   "resources": [
     {
@@ -69,7 +69,7 @@
             "createOption": "fromImage",
             "diskSizeGB": "30",
             "managedDisk": {
-              "storageAccountType": "Premium_LRS"
+              "storageAccountType": "Standard_LRS"
             }
           }
         },
