@@ -1,0 +1,129 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "0.0.1",
+  "parameters": {
+    "prefix": {
+      "type": "string",
+      "defaultValue": "bam-mactive",
+      "metadata": {
+        "description": "Prefix to add to resource names"
+      }
+    },
+    "serviceSubnetIp": {
+      "type": "string",
+      "defaultValue": "10.0.0.0/24",
+      "metadata": {
+        "description": "address space for fw service vnet"
+      }
+    },
+    "workloadSubnetIp": {
+      "type": "string",
+      "defaultValue": "10.1.0.0/24",
+      "metadata": {
+        "description": "address space for workload vnet"
+      }
+    }
+  },
+  "variables": {
+    "serviceVnetName": "[concat( parameters( 'prefix' ), '-vnetFw')]",
+    "serviceSubnetName": "firewalls",
+    "workloadVnetName": "[concat( parameters( 'prefix' ), '-vnetLoad')]",
+    "workloadSubnetName": "servers",
+    "peerSpoketoSrvName": "[concat( parameters( 'prefix' ), '-peeringLoad2Fw' )]",
+    "peerSrvtoSpokeName": "[concat( parameters( 'prefix' ), '-peeringFw2Load' )]",
+    "apis": {
+      "Compute": "2017-12-01",
+      "Network": "2017-10-01",
+      "Resources": "2017-05-10"
+    }
+  },
+  "resources": [
+    {
+      "name": "[variables( 'serviceVnetName' )]",
+      "apiVersion": "[variables( 'apis' ).Network]",
+      "type": "Microsoft.Network/virtualNetworks",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[parameters( 'serviceSubnetIp' )]"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[variables( 'serviceSubnetName' )]",
+            "properties": {
+              "addressPrefix": "[parameters( 'serviceSubnetIp' )]"
+            }
+          }
+        ]
+      },
+      "resources": [
+        {
+          "apiVersion": "2016-06-01",
+          "type": "virtualNetworkPeerings",
+          "name": "[variables('peerSrvtoSpokeName')]",
+          "location": "[resourceGroup().location]",
+          "dependsOn": [
+            "[concat('Microsoft.Network/virtualNetworks/', variables( 'workloadVnetName' ))]",
+            "[concat('Microsoft.Network/virtualNetworks/', variables( 'serviceVnetName' ))]"
+          ],
+          "comments": "This is the peering from service vNet to workload vNet",
+          "properties": {
+            "allowVirtualNetworkAccess": "true",
+            "allowForwardedTraffic": "false",
+            "allowGatewayTransit": "false",
+            "useRemoteGateways": "false",
+            "remoteVirtualNetwork": {
+              "id": "[resourceId('Microsoft.Network/virtualNetworks', variables( 'workloadVnetName' ))]"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "[variables( 'workloadVnetName' )]",
+      "apiVersion": "[variables( 'apis' ).Network]",
+      "type": "Microsoft.Network/virtualNetworks",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[parameters( 'workloadSubnetIp' )]"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[variables( 'workloadSubnetName' )]",
+            "properties": {
+              "addressPrefix": "[parameters( 'workloadSubnetIp' )]"
+            }
+          }
+        ]
+      },
+      "resources": [
+        {
+          "apiVersion": "2016-06-01",
+          "type": "virtualNetworkPeerings",
+          "name": "[variables('peerSpoketoSrvName')]",
+          "location": "[resourceGroup().location]",
+          "dependsOn": [
+            "[concat('Microsoft.Network/virtualNetworks/', variables( 'workloadVnetName' ))]",
+            "[concat('Microsoft.Network/virtualNetworks/', variables( 'serviceVnetName' ))]"
+          ],
+          "comments": "This is the peering from workload vNet to service vNet",
+          "properties": {
+            "allowVirtualNetworkAccess": "true",
+            "allowForwardedTraffic": "false",
+            "allowGatewayTransit": "false",
+            "useRemoteGateways": "false",
+            "remoteVirtualNetwork": {
+              "id": "[resourceId('Microsoft.Network/virtualNetworks', variables( 'serviceVnetName' ))]"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "outputs": {}
+}

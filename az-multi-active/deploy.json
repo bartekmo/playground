@@ -1,0 +1,329 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+  "contentVersion": "0.0.1",
+  "parameters": {
+    "prefix": {
+       "type": "string",
+       "defaultValue": "bam-mactive",
+       "metadata": {
+         "description": "Prefix to add to resource names"
+       }
+    },
+    "fwSubnetResId": {
+      "type": "string",
+      "defaultValue": "/subscriptions/bde58b49-9951-466e-90e2-592c0920ce77/resourceGroups/bam-mactive-vnets/providers/Microsoft.Network/virtualNetworks/bam-mactive-vnetFw/subnets/firewalls",
+      "metadata": {
+        "description": "resource Id of firewall subnet"
+      }
+    },
+    "workloadSubnetResId": {
+      "type": "string",
+      "defaultValue": "/subscriptions/bde58b49-9951-466e-90e2-592c0920ce77/resourceGroups/bam-mactive-vnets/providers/Microsoft.Network/virtualNetworks/bam-mactive-vnetLoad/subnets/servers",
+      "metadata": {
+        "description": "resource Id of workload subnet to be secured"
+      }
+    },
+    "fwVmSize": {
+       "type": "string",
+       "defaultValue": "Standard_F1s",
+       "metadata": {
+         "description": "VM size"
+       }
+    },
+    "fwCcKey": {
+       "type": "securestring",
+       "defaultValue": "",
+       "metadata": {
+         "description": "key for CC binding (same for all firewalls)"
+       }
+    },
+    "ilbAddr": {
+      "type": "string",
+      "defaultValue": "10.0.0.253"
+    }
+  },
+  "variables": {
+    "apis": {
+      "Compute": "2017-12-01",
+      "Network": "2017-10-01",
+      "Resources": "2017-05-10"
+    },
+    "count": 3,
+    "fwVmSku": "byol",
+    "fwVmVersion": "7.2.112901",
+    "fwTempPassword": "[concat( '1TimePwd-', uniqueString(resourceGroup().id))]",
+    "fwCcKeyEscaped": "[replace( replace( parameters( 'fwCcKey' ), '%', '\\%' ), '\"', '\\\"' )]",
+    "fwAsName": "[concat( parameters( 'prefix' ), '-haset')]",
+    "fwCcData": {
+      "ccIpAddress": "52.166.120.93",
+      "ccRangeId": "1",
+      "ccClusterName": "multi-active"
+    },
+    "pipSKu": "Basic",
+    "pipAddressVersion": "IPv4",
+    "ilbName": "[concat( parameters( 'prefix' ), '-ILB' )]",
+    "ilbPoolName": "CGFWPool",
+    "ilbProbeName": "CGFWProbe",
+    "ilbProbePort": 65500,
+    "rtName": "[concat( parameters( 'prefix' ), '-routeSecured' )]",
+    "clientSubnetSplit": "[split( parameters( 'workloadSubnetResId' ), '/' )]",
+    "clientVnet": "[variables( 'clientSubnetSplit' )[8]]",
+    "clientSubnet": "[variables( 'clientSubnetSplit' )[10]]",
+    "clientResourceGroup": "[variables( 'clientSubnetSplit' )[4]]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Compute/availabilitySets",
+      "name": "[variables('fwAsName')]",
+      "apiVersion": "[variables('apis').Compute]",
+      "sku": {
+        "name": "Aligned"
+      },
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "platformUpdateDomainCount": 3,
+        "platformFaultDomainCount": 2
+      }
+    },
+    {
+      "name": "[concat( parameters( 'prefix' ), '-cgfw', copyIndex())]",
+      "type": "Microsoft.Compute/virtualMachines",
+      "copy": {
+        "name": "vmCopy",
+        "count": "[variables( 'count' )]"
+      },
+      "apiVersion": "[variables( 'apis' ).Compute]",
+      "location": "[resourceGroup().location]",
+      "dependsOn": [
+        "[resourceId( 'Microsoft.Network/networkInterfaces', concat( parameters( 'prefix' ), '-fwnic', copyIndex()))]"
+      ],
+      "tags": {},
+      "plan": {
+        "name": "[variables( 'fwVmSku' )]",
+        "publisher": "barracudanetworks",
+        "product": "barracuda-ng-firewall"
+      },
+      "properties": {
+        "hardwareProfile": {
+          "vmSize": "[parameters( 'fwVmSize' )]"
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "barracudanetworks",
+            "offer": "barracuda-ng-firewall",
+            "sku": "[variables( 'fwVmSku' )]",
+            "version": "[variables( 'fwVmVersion' )]"
+          },
+          "osDisk": {
+            "osType": "Linux",
+            "caching": "ReadWrite",
+            "createOption": "FromImage",
+            "managedDisk": {
+              "storageAccountType": "Premium_LRS"
+            }
+          }
+        },
+        "osProfile": {
+          "computerName": "[concat( parameters( 'prefix' ), '-cgf', copyIndex())]",
+          "adminUsername": "dummy_admin_name",
+          "adminPassword": "[variables( 'fwTempPassword' )]"
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId( 'Microsoft.Network/networkInterfaces', concat( parameters( 'prefix' ), '-fwnic', copyIndex()))]",
+              "properties": {
+                "primary": true
+              }
+            }
+          ]
+        },
+        "availabilitySet": {
+          "id": "[resourceId('Microsoft.Compute/availabilitySets', variables('fwAsName'))]"
+        },
+        "diagnosticsProfile": {
+          "bootDiagnostics": {
+            "enabled": "false"
+          }
+        }
+      }
+    },
+    {
+      "name": "[concat( parameters( 'prefix' ), '-fwnic', copyIndex() )]",
+      "copy": {
+        "name": "nicCopy",
+        "count": "[variables( 'count' )]"
+      },
+      "type": "Microsoft.Network/networkInterfaces",
+      "apiVersion": "[variables( 'apis' ).Network ]",
+      "location": "[resourceGroup().location]",
+      "dependsOn": [
+        "[resourceId( 'Microsoft.Network/publicIPAddresses', concat( parameters( 'prefix' ), '-pip', copyIndex()))]",
+        "[resourceId( 'Microsoft.Network/loadBalancers', variables( 'ilbName' ))]"
+      ],
+      "properties": {
+        "enableIPForwarding": true,
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIpAddressVersion": "IPv4",
+              "privateIPAllocationMethod": "Dynamic",
+              "subnet": {
+                "id": "[parameters( 'fwSubnetResId' )]"
+              },
+              "publicIPAddress": {
+                "id": "[resourceId( 'Microsoft.Network/publicIpAddresses', concat( parameters( 'prefix' ), '-pip', copyIndex()))]"
+              },
+              "loadBalancerBackendAddressPools": [
+                {
+                  "id": "[concat(resourceId('Microsoft.Network/loadBalancers', variables('ilbName')), '/backendAddressPools/', variables( 'ilbPoolName' ))]"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "[concat( parameters( 'prefix' ), '-pip', copyIndex())]",
+      "copy": {
+        "name": "pipCopy",
+        "count": "[variables( 'count' )]"
+      },
+      "apiVersion": "[variables( 'apis' ).Network ]",
+      "type": "Microsoft.Network/publicIPAddresses",
+      "location": "[resourceGroup().location]",
+      "sku": {
+        "name": "[variables( 'pipSku' )]"
+      },
+      "properties": {
+        "publicIPAllocationMethod": "Dynamic",
+        "publicIpAddressVersion": "[variables( 'pipAddressVersion' )]"
+      }
+    },
+
+    {
+      "type": "Microsoft.Network/loadBalancers",
+      "name": "[variables('ilbName')]",
+      "apiVersion": "[variables('apis').Network]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "frontendIPConfigurations": [
+          {
+            "name": "InternalLoadBalancerVIP",
+            "properties": {
+              "privateIPAddress": "[parameters( 'ilbAddr' )]",
+              "privateIPAllocationMethod": "Static",
+              "subnet": {
+                "id": "[parameters( 'fwSubnetResId' )]"
+              }
+            }
+          }
+        ],
+        "backendAddressPools": [
+          {
+            "name": "[variables( 'ilbPoolName' )]"
+          }
+        ],
+        "loadBalancingRules": [
+          {
+            "name": "lbrule",
+            "properties": {
+              "frontendIPConfiguration": {
+                "id": "[concat( resourceId('Microsoft.Network/loadBalancers', variables('ilbName')), '/frontendIpConfigurations/InternalLoadBalancerVIP' )]"
+              },
+              "frontendPort": 0,
+              "backendPort": 0,
+              "enableFloatingIP": false,
+              "idleTimeoutInMinutes": 15,
+              "protocol": "All",
+              "loadDistribution": "Default",
+              "backendAddressPool": {
+                "id": "[concat( resourceId('Microsoft.Network/loadBalancers', variables('ilbName')), '/backendAddressPools/', variables('ilbPoolName'))]"
+              },
+              "probe": {
+                "id": "[concat( resourceId('Microsoft.Network/loadBalancers', variables('ilbName')), '/probes/', variables('ilbProbeName'))]"
+              }
+            }
+          }
+        ],
+        "probes": [
+          {
+            "name": "[variables('ilbProbeName')]",
+            "properties": {
+              "provisioningState": "Succeeded",
+              "protocol": "Tcp",
+              "port": "[variables('ilbProbePort')]",
+              "intervalInSeconds": 5,
+              "numberOfProbes": 2
+            }
+          }
+        ],
+        "inboundNatRules": [],
+        "outboundNatRules": [],
+        "inboundNatPools": []
+      }
+    },
+
+    {
+      "type": "Microsoft.Network/routeTables",
+      "name": "[variables( 'rtName' )]",
+      "apiVersion": "[variables( 'apis' ).Network]",
+      "location": "[resourceGroup().location]",
+      "properties": {
+        "routes": [
+          {
+            "name": "default",
+            "properties": {
+              "addressPrefix": "0.0.0.0/0",
+              "nextHopType": "VirtualAppliance",
+              "nextHopIpAddress": "[parameters( 'ilbAddr' )]"
+            }
+          }
+        ]
+
+      }
+    },
+    {
+      "name": "attachRouting",
+      "type": "Microsoft.Resources/deployments",
+      "resourceGroup": "[variables( 'clientResourceGroup' )]",
+      "apiVersion": "[variables( 'apis' ).Resources ]",
+      "condition": "[equals( 1, 0 )]",
+      "dependsOn": [
+        "[variables( 'ilbName' )]"
+      ],
+      "properties": {
+        "mode": "Incremental",
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+          "contentVersion": "0.1",
+          "resources": [
+            {
+              "type": "Microsoft.Network/virtualNetworks/subnets",
+              "name": "[concat( variables( 'clientVnet'), '/', variables( 'clientSubnet' ))]",
+              "apiVersion": "[variables( 'apis' ).Network ]",
+              "properties": {
+                "addressPrefix": "[parameters( 'vnet' ).subnets.clientSubnet.addressPrefix ]",
+                "routeTable": {
+                  "id": "[resourceId( 'Microsoft.Network/routeTables', variables( 'rtName' ))]"
+                },
+                "networkSecurityGroup": "[ reference( parameters( 'workloadSubnetResId' ), variables( 'apis' ).Network ).networkSecurityGroup ]",
+                "serviceEndpoints": "[ reference( parameters( 'workloadSubnetResId' ), variables( 'apis' ).Network ).serviceEndpoints ]"
+              }
+            }
+          ]
+        }
+      }
+    }
+
+
+  ],
+  "outputs": {
+    "temporaryPasswd": {
+      "type": "string",
+      "value": "[variables( 'fwTempPassword' )]"
+    }
+  }
+}
