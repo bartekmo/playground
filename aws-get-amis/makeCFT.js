@@ -163,7 +163,7 @@ ec2.describeRegions({}, async function( err, data ) {
     templateObj.Parameters.ReleaseVersion.AllowedValues = versions;
 
     var resSaveParams = {
-      Body: JSON.stringify( templateObj ),
+      Body: JSON.stringify( templateObj, null, 2 ),
       Bucket: "cuda-cgf-templates",
       Key: "CGF_HA_floatingEIP.json",
       ACL: "public-read"
